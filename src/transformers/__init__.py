@@ -33,6 +33,7 @@ from .configuration_encoder_decoder import EncoderDecoderConfig
 from .configuration_flaubert import FLAUBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, FlaubertConfig
 from .configuration_gpt2 import GPT2_PRETRAINED_CONFIG_ARCHIVE_MAP, GPT2Config
 from .configuration_longformer import LONGFORMER_PRETRAINED_CONFIG_ARCHIVE_MAP, LongformerConfig
+from .configuration_linformer import LINFORMER_PRETRAINED_CONFIG_ARCHIVE_MAP, LinformerConfig
 from .configuration_marian import MarianConfig
 from .configuration_mmbt import MMBTConfig
 from .configuration_mobilebert import MOBILEBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, MobileBertConfig
@@ -390,6 +391,17 @@ if is_torch_available():
         ReformerForSequenceClassification,
         ReformerForQuestionAnswering,
         REFORMER_PRETRAINED_MODEL_ARCHIVE_LIST,
+    )
+
+    from .modeling_linformer import (
+        LinformerModel,
+        LinformerForMaskedLM,
+        LinformerForSequenceClassification,
+        LinformerForMultipleChoice,
+        LinformerForTokenClassification,
+        LinformerForQuestionAnswering,
+        LinformerSelfAttention,
+        LINFORMER_PRETRAINED_MODEL_ARCHIVE_LIST,
     )
 
     from .modeling_longformer import (
