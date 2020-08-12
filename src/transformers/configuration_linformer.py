@@ -30,6 +30,7 @@ class LinformerConfig(RobertaConfig):
 
     def __init__(
         self,
+        max_seq_len: int = 512,
         compressed: int = 1,
         shared_kv_compressed: bool = False,
         shared_layer_kv_compressed: bool = False,
@@ -37,6 +38,8 @@ class LinformerConfig(RobertaConfig):
         **kwargs,
     ):
         """
+        max_seq_len: maximum sequence length to compress from
+            (different from max position embeds for fairseq models)
         compressed: compressed ratio of sequence length
             (TODO should this be a float??)
         shared_kv_compressed: share compressed matrix between k and v, in each layer
@@ -44,6 +47,7 @@ class LinformerConfig(RobertaConfig):
         freeze_compress: freeze the parameters in compressed layer
         """
         super().__init__(**kwargs)
+        self.max_seq_len = max_seq_len
         self.compressed = compressed
         self.shared_kv_compressed = shared_kv_compressed
         self.shared_layer_kv_compressed = shared_layer_kv_compressed

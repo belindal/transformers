@@ -54,9 +54,10 @@ def convert_linformer_checkpoint_to_pytorch(
         num_hidden_layers=linformer.args.encoder_layers,
         num_attention_heads=linformer.args.encoder_attention_heads,
         intermediate_size=linformer.args.encoder_ffn_embed_dim,
-        max_position_embeddings=linformer.args.max_positions,
+        max_position_embeddings=linformer_sent_encoder.embed_positions.num_embeddings,
         type_vocab_size=1,
         layer_norm_eps=1e-5,  # PyTorch default used in fairseq
+        max_seq_len=linformer.args.max_positions,
         compressed=linformer.args.compressed,
         shared_kv_compressed=(linformer.args.shared_kv_compressed == 1),
         shared_layer_kv_compressed=(linformer.args.shared_layer_kv_compressed == 1),
@@ -103,10 +104,9 @@ def convert_linformer_checkpoint_to_pytorch(
 
         # linformer compression
         assert self_attn.shared_kv_compressed == layer.attention.self.shared_kv_compressed
-        assert (
-            linformer_layer.self_attn.compress_k.weight.data.shape
-            == self_attn.compress_k.weight.data.shape
-        )
+        assert linformer_layer.self_attn.compress_k.weight.data.shape == torch.Size((
+            linformer.args.max_positions // linformer.args.compressed, linformer.args.max_positions,
+        )) == layer.attention.self.compress_k.weight.data.shape
         self_attn.compress_k.weight.data = fairseq_linformer_state.pop('layers.{0}.self_attn.compress_k.weight'.format(i))
         self_attn.compress_k.bias.data = fairseq_linformer_state.pop('layers.{0}.self_attn.compress_k.bias'.format(i))
         if not self_attn.shared_kv_compressed:

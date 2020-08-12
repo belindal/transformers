@@ -76,11 +76,11 @@ class LinformerSelfAttention(BertSelfAttention):
 
         # used for compressing sequence to subsequence
         if shared_compress_layer is None:
-            self.compress_seq_len = config.max_position_embeddings // config.compressed
-            self.compress_k = nn.Linear(config.max_position_embeddings, self.compress_seq_len, bias=False)
+            self.compress_seq_len = config.max_seq_len // config.compressed
+            self.compress_k = nn.Linear(config.max_seq_len, self.compress_seq_len, bias=False)
             nn.init.xavier_uniform_(self.compress_k.weight, gain=1/math.sqrt(2))
             if not config.shared_kv_compressed:
-                self.compress_v = nn.Linear(config.max_position_embeddings, self.compress_seq_len, bias=False)
+                self.compress_v = nn.Linear(config.max_seq_len, self.compress_seq_len, bias=False)
                 nn.init.xavier_uniform_(self.compress_v.weight, gain=1/math.sqrt(2))
         else:
             self.compress_k = shared_compress_layer
@@ -184,7 +184,7 @@ class LinformerEncoder(BertEncoder):
         super().__init__(config)
 
         if config.shared_layer_kv_compressed:
-            compress_layer = nn.Linear(config.max_position_embeddings, config.max_position_embeddings // config.compressed)
+            compress_layer = nn.Linear(config.max_seq_len, config.max_seq_len // config.compressed)
             # intialize parameters for compressed layer
             nn.init.xavier_uniform_(compress_layer.weight, gain=1 / math.sqrt(2))
             if config.freeze_compress:
