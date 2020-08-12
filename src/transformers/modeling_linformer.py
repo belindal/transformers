@@ -72,32 +72,28 @@ LINFORMER_PRETRAINED_MODEL_ARCHIVE_LIST = []
 
 
 class LinformerSelfAttention(BertSelfAttention):
-    """
-    TODO: add compression matrices
-    """
     def __init__(self, config, shared_compress_layer=None):
         super().__init__(config)
 
-        # used for compress sequence to subsequence
-        if self.shared_compress_layer is None:
-            self.compress_seq_len = max_seq_len // compressed
-            self.compress_k = nn.Linear(max_seq_len, self.compress_seq_len, bias=False)
+        # used for compressing sequence to subsequence
+        if shared_compress_layer is None:
+            self.compress_seq_len = config.max_position_embeddings // config.compressed
+            self.compress_k = nn.Linear(config.max_position_embeddings, self.compress_seq_len, bias=False)
             nn.init.xavier_uniform_(self.compress_k.weight, gain=1/math.sqrt(2))
-            if config.shared_kv_compressed == 0:
-                self.compress_v = nn.Linear(max_seq_len, self.compress_seq_len, bias=False)
+            if not config.shared_kv_compressed:
+                self.compress_v = nn.Linear(config.max_position_embeddings, self.compress_seq_len, bias=False)
                 nn.init.xavier_uniform_(self.compress_v.weight, gain=1/math.sqrt(2))
-            self.layerwise_sharing = False
         else:
             self.compress_k = shared_compress_layer
-            if config.shared_kv_compressed == 0:
+            if not config.shared_kv_compressed:
+                # TODO this still shares the layer between key/value...
                 self.compress_v = shared_compress_layer
-            self.layerwise_sharing = True
     
         self.shared_kv_compressed = config.shared_kv_compressed
     
-        if config.freeze_compress == 1:
+        if config.freeze_compress:
             self.compress_k.weight.requires_grad = False
-            if config.shared_kv_compressed == 0:
+            if not config.shared_kv_compressed:
                 self.compress_v.weight.requires_grad = False
 
     def forward(
@@ -111,6 +107,8 @@ class LinformerSelfAttention(BertSelfAttention):
     ):
         mixed_query_layer = self.query(hidden_states)
 
+        did_compress = False
+
         # If this is instantiated as a cross-attention module, the keys
         # and values come from an encoder; the attention mask needs to be
         # such that the encoder's padding tokens are not attended to.
@@ -121,18 +119,19 @@ class LinformerSelfAttention(BertSelfAttention):
         else:
             # mixed_key_layer = self.key(hidden_states)
             # mixed_value_layer = self.value(hidden_states)
-            import pdb
-            pdb.set_trace()
-            # TODO need permute???
-            k_input = hidden_states  #.permute(1, 2, 0).contiguous()  # B * C * T
-            k_input = F.linear(k_input, self.compress_k.weight[:, 0: tgt_len]).permute(2, 0, 1).contiguous()
+            tgt_len = hidden_states.size(1)
+            # (bsz, embed_dim, seqlen)
+            k_input = hidden_states.permute(0, 2, 1).contiguous()
+            k_input = F.linear(k_input, self.compress_k.weight[:, 0: tgt_len]).permute(0, 2, 1).contiguous()
             mixed_key_layer = self.key(k_input)
-            v_input = hidden_states  #.permute(1, 2, 0).contiguous()  # B * C * T
-            if self.shared_kv_compressed == 0:
-                v_input = F.linear(v_input, self.compress_v.weight[:, 0: tgt_len]).permute(2, 0, 1).contiguous()
-            if self.shared_kv_compressed == 1:  # use shared kv compressed linear layer
-                v_input = F.linear(v_input, self.compress_k.weight[:, 0: tgt_len]).permute(2, 0, 1).contiguous()
+            # (bsz, embed_dim, seqlen)
+            v_input = hidden_states.permute(0, 2, 1).contiguous()
+            if self.shared_kv_compressed:  # use shared kv compressed linear layer
+                v_input = F.linear(v_input, self.compress_k.weight[:, 0: tgt_len]).permute(0, 2, 1).contiguous()
+            else:
+                v_input = F.linear(v_input, self.compress_v.weight[:, 0: tgt_len]).permute(0, 2, 1).contiguous()
             mixed_value_layer = self.value(v_input)
+            did_compress = True
 
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
@@ -141,7 +140,8 @@ class LinformerSelfAttention(BertSelfAttention):
         # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-        if attention_mask is not None:
+        if attention_mask is not None and not did_compress:
+            # don't mask if we've already compressed (all values are linear combination of all other values)
             # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
             attention_scores = attention_scores + attention_mask
 
@@ -193,7 +193,7 @@ class LinformerEncoder(BertEncoder):
             self.compress_layer = compress_layer
 
         self.layer = nn.ModuleList([LinformerLayer(
-            config, shared_compress_layer=(None if config.shared_layer_kv_compressed else compress_layer),
+            config, shared_compress_layer=(self.compress_layer if config.shared_layer_kv_compressed else None),
         ) for _ in range(config.num_hidden_layers)])
 
 

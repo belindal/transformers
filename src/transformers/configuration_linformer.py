@@ -46,5 +46,5 @@ class LinformerConfig(RobertaConfig):
         super().__init__(**kwargs)
         self.compressed = compressed
         self.shared_kv_compressed = shared_kv_compressed
-        self.shared_layer_kv_compressed
+        self.shared_layer_kv_compressed = shared_layer_kv_compressed
         self.freeze_compress = freeze_compress
