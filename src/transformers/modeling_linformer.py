@@ -1,5 +1,4 @@
 # coding=utf-8
-# Copyright 2020 The Allen Institute for AI team and The HuggingFace Inc. team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -185,7 +184,7 @@ class LinformerEncoder(BertEncoder):
         super().__init__(config)
 
         if config.shared_layer_kv_compressed:
-            compress_layer = nn.Linear(self.max_position_embeddings, self.max_position_embeddings // config.compressed)
+            compress_layer = nn.Linear(config.max_position_embeddings, config.max_position_embeddings // config.compressed)
             # intialize parameters for compressed layer
             nn.init.xavier_uniform_(compress_layer.weight, gain=1 / math.sqrt(2))
             if config.freeze_compress:
@@ -195,6 +194,29 @@ class LinformerEncoder(BertEncoder):
         self.layer = nn.ModuleList([LinformerLayer(
             config, shared_compress_layer=(self.compress_layer if config.shared_layer_kv_compressed else None),
         ) for _ in range(config.num_hidden_layers)])
+
+    def forward(
+        self,
+        hidden_states,
+        attention_mask=None,
+        head_mask=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+        output_attentions=False,
+        output_hidden_states=False,
+        return_dict=False,
+    ):
+	# TODO zero out padding?
+        return super().forward(
+	    hidden_states=hidden_states,
+            attention_mask=attention_mask,
+	    head_mask=head_mask,
+	    encoder_hidden_states=encoder_hidden_states,
+	    encoder_attention_mask=encoder_attention_mask,
+	    output_attentions=output_attentions,
+	    output_hidden_states=output_hidden_states,
+	    return_dict=return_dict,
+        )
 
 
 class LinformerPreTrainedModel(PreTrainedModel):
@@ -206,7 +228,7 @@ class LinformerPreTrainedModel(PreTrainedModel):
     # as of now, code is identical to bertpretrainedmodel, so this is okay
 
     config_class = LinformerConfig
-    base_model_prefix = "linformer"
+    base_model_prefix = "roberta"
 
     def _init_weights(self, module):
         """ Initialize the weights """
@@ -223,7 +245,7 @@ class LinformerPreTrainedModel(PreTrainedModel):
 class LinformerModel(RobertaModel):
 
     config_class = LinformerConfig
-    base_model_prefix = "linformer"
+    base_model_prefix = "roberta"
 
     def __init__(self, config):
         super().__init__(config)
@@ -235,7 +257,7 @@ class LinformerModel(RobertaModel):
 
 class LinformerForMaskedLM(RobertaForMaskedLM):
     config_class = LinformerConfig
-    base_model_prefix = "linformer"
+    base_model_prefix = "roberta"
 
     def __init__(self, config):
         super().__init__(config)
@@ -246,7 +268,7 @@ class LinformerForMaskedLM(RobertaForMaskedLM):
 
 class LinformerForSequenceClassification(RobertaForSequenceClassification):
     config_class = LinformerConfig
-    base_model_prefix = "linformer"
+    base_model_prefix = "roberta"
 
     def __init__(self, config):
         super().__init__(config)
@@ -258,7 +280,7 @@ class LinformerForSequenceClassification(RobertaForSequenceClassification):
 
 class LinformerForQuestionAnswering(RobertaForQuestionAnswering):
     config_class = LinformerConfig
-    base_model_prefix = "linformer"
+    base_model_prefix = "roberta"
 
     def __init__(self, config):
         super().__init__(config)
@@ -269,7 +291,7 @@ class LinformerForQuestionAnswering(RobertaForQuestionAnswering):
 
 class LinformerForTokenClassification(RobertaForTokenClassification):
     config_class = LinformerConfig
-    base_model_prefix = "linformer"
+    base_model_prefix = "roberta"
 
     def __init__(self, config):
         super().__init__(config)
@@ -280,7 +302,7 @@ class LinformerForTokenClassification(RobertaForTokenClassification):
 
 class LinformerForMultipleChoice(RobertaForMultipleChoice):
     config_class = LinformerConfig
-    base_model_prefix = "linformer"
+    base_model_prefix = "roberta"
 
     def __init__(self, config):
         super().__init__(config)

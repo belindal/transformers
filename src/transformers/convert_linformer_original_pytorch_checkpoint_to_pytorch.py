@@ -21,13 +21,12 @@ import pathlib
 
 import fairseq
 import torch
-# TODO
 from fairseq.models.fb_linformer import LinformerModel as FairseqLinformerModel
-from fairseq.modules import LinformerSentenceEncoderLayer
+from fairseq.modules.fb_linformer_sentence_encoder_layer import LinformerSentenceEncoderLayer
 from packaging import version
 
 from transformers.modeling_bert import BertIntermediate, BertLayer, BertOutput, BertSelfAttention, BertSelfOutput
-from transformers.modeling_linformer import LinformerConfig, LinformerForMaskedLM, LinformerForSequenceClassification
+from src.transformers.modeling_linformer import LinformerConfig, LinformerForMaskedLM, LinformerForSequenceClassification
 
 
 if version.parse(fairseq.__version__) < version.parse("0.9.0"):
@@ -55,9 +54,13 @@ def convert_linformer_checkpoint_to_pytorch(
         num_hidden_layers=linformer.args.encoder_layers,
         num_attention_heads=linformer.args.encoder_attention_heads,
         intermediate_size=linformer.args.encoder_ffn_embed_dim,
-        max_position_embeddings=514,
+        max_position_embeddings=linformer.args.max_positions,
         type_vocab_size=1,
         layer_norm_eps=1e-5,  # PyTorch default used in fairseq
+        compressed=linformer.args.compressed,
+        shared_kv_compressed=(linformer.args.shared_kv_compressed == 1),
+        shared_layer_kv_compressed=(linformer.args.shared_layer_kv_compressed == 1),
+        freeze_compress=(linformer.args.freeze_compress == 1),
     )
     if classification_head:
         config.num_labels = linformer.model.classification_heads["mnli"].out_proj.weight.shape[0]
@@ -67,15 +70,16 @@ def convert_linformer_checkpoint_to_pytorch(
     model.eval()
 
     # Now let's copy all the weights.
+    fairseq_linformer_state = linformer_sent_encoder.state_dict()
     # Embeddings
-    model.roberta.embeddings.word_embeddings.weight = linformer_sent_encoder.embed_tokens.weight
-    model.roberta.embeddings.position_embeddings.weight = linformer_sent_encoder.embed_positions.weight
+    model.roberta.embeddings.word_embeddings.weight.data = fairseq_linformer_state.pop('embed_tokens.weight')
+    model.roberta.embeddings.position_embeddings.weight.data = fairseq_linformer_state.pop('embed_positions.weight')
     model.roberta.embeddings.token_type_embeddings.weight.data = torch.zeros_like(
         model.roberta.embeddings.token_type_embeddings.weight
     )  # just zero them out b/c Linformer doesn't use them.
-    model.roberta.embeddings.LayerNorm.weight = linformer_sent_encoder.emb_layer_norm.weight
-    model.roberta.embeddings.LayerNorm.bias = linformer_sent_encoder.emb_layer_norm.bias
-
+    model.roberta.embeddings.LayerNorm.weight.data = fairseq_linformer_state.pop('emb_layer_norm.weight')
+    model.roberta.embeddings.LayerNorm.bias.data = fairseq_linformer_state.pop('emb_layer_norm.bias')
+    
     for i in range(config.num_hidden_layers):
         # Encoder: start of layer
         layer: BertLayer = model.roberta.encoder.layer[i]
@@ -90,35 +94,60 @@ def convert_linformer_checkpoint_to_pytorch(
             == torch.Size((config.hidden_size, config.hidden_size))
         )
 
-        self_attn.query.weight.data = linformer_layer.self_attn.q_proj.weight
-        self_attn.query.bias.data = linformer_layer.self_attn.q_proj.bias
-        self_attn.key.weight.data = linformer_layer.self_attn.k_proj.weight
-        self_attn.key.bias.data = linformer_layer.self_attn.k_proj.bias
-        self_attn.value.weight.data = linformer_layer.self_attn.v_proj.weight
-        self_attn.value.bias.data = linformer_layer.self_attn.v_proj.bias
+        self_attn.query.weight.data = fairseq_linformer_state.pop('layers.{0}.self_attn.q_proj.weight'.format(i))
+        self_attn.query.bias.data = fairseq_linformer_state.pop('layers.{0}.self_attn.q_proj.bias'.format(i))
+        self_attn.key.weight.data = fairseq_linformer_state.pop('layers.{0}.self_attn.k_proj.weight'.format(i))
+        self_attn.key.bias.data = fairseq_linformer_state.pop('layers.{0}.self_attn.k_proj.bias'.format(i))
+        self_attn.value.weight.data = fairseq_linformer_state.pop('layers.{0}.self_attn.v_proj.weight'.format(i))
+        self_attn.value.bias.data = fairseq_linformer_state.pop('layers.{0}.self_attn.v_proj.bias'.format(i))
+
+        # linformer compression
+        assert self_attn.shared_kv_compressed == layer.attention.self.shared_kv_compressed
+        assert (
+            linformer_layer.self_attn.compress_k.weight.data.shape
+            == self_attn.compress_k.weight.data.shape
+        )
+        self_attn.compress_k.weight.data = fairseq_linformer_state.pop('layers.{0}.self_attn.compress_k.weight'.format(i))
+        self_attn.compress_k.bias.data = fairseq_linformer_state.pop('layers.{0}.self_attn.compress_k.bias'.format(i))
+        if not self_attn.shared_kv_compressed:
+            assert (
+                linformer_layer.self_attn.compress_v.weight.data.shape
+                == self_attn.compress_v.weight.data.shape
+            )
+            self_attn.compress_v.weight.data = fairseq_linformer_state.pop('layers.{0}.self_attn.compress_v.weight'.format(i))
+        if layer.shared_compress_layer is not None:
+            layer.shared_compress_layer.weight.data = fairseq_linformer_state.pop('layers.{0}.shared_compress_layer.weight'.format(i))
+            layer.shared_compress_layer.bias.data = fairseq_linformer_state.pop('layers.{0}.shared_compress_layer.bias'.format(i))
 
         # self-attention output
         self_output: BertSelfOutput = layer.attention.output
         assert self_output.dense.weight.shape == linformer_layer.self_attn.out_proj.weight.shape
-        self_output.dense.weight = linformer_layer.self_attn.out_proj.weight
-        self_output.dense.bias = linformer_layer.self_attn.out_proj.bias
-        self_output.LayerNorm.weight = linformer_layer.self_attn_layer_norm.weight
-        self_output.LayerNorm.bias = linformer_layer.self_attn_layer_norm.bias
+        self_output.dense.weight.data = fairseq_linformer_state.pop('layers.{0}.self_attn.out_proj.weight'.format(i))
+        self_output.dense.bias.data = fairseq_linformer_state.pop('layers.{0}.self_attn.out_proj.bias'.format(i))
+        self_output.LayerNorm.weight.data = fairseq_linformer_state.pop('layers.{0}.self_attn_layer_norm.weight'.format(i))
+        self_output.LayerNorm.bias.data = fairseq_linformer_state.pop('layers.{0}.self_attn_layer_norm.bias'.format(i))
 
         # intermediate
         intermediate: BertIntermediate = layer.intermediate
         assert intermediate.dense.weight.shape == linformer_layer.fc1.weight.shape
-        intermediate.dense.weight = linformer_layer.fc1.weight
-        intermediate.dense.bias = linformer_layer.fc1.bias
+        intermediate.dense.weight.data = fairseq_linformer_state.pop('layers.{0}.fc1.weight'.format(i))
+        intermediate.dense.bias.data = fairseq_linformer_state.pop('layers.{0}.fc1.bias'.format(i))
 
         # output
         bert_output: BertOutput = layer.output
         assert bert_output.dense.weight.shape == linformer_layer.fc2.weight.shape
-        bert_output.dense.weight = linformer_layer.fc2.weight
-        bert_output.dense.bias = linformer_layer.fc2.bias
-        bert_output.LayerNorm.weight = linformer_layer.final_layer_norm.weight
-        bert_output.LayerNorm.bias = linformer_layer.final_layer_norm.bias
+        bert_output.dense.weight.data = fairseq_linformer_state.pop('layers.{0}.fc2.weight'.format(i))
+        bert_output.dense.bias.data = fairseq_linformer_state.pop('layers.{0}.fc2.bias'.format(i))
+        bert_output.LayerNorm.weight.data = fairseq_linformer_state.pop('layers.{0}.final_layer_norm.weight'.format(i))
+        bert_output.LayerNorm.bias.data = fairseq_linformer_state.pop('layers.{0}.final_layer_norm.bias'.format(i))
         # end of layer
+
+    # shared compression between layers 
+    if config.shared_layer_kv_compressed:
+        model.roberta.encoder.compress_layer.weight.data = fairseq_linformer_state.pop('compress_layer.weight'.format(i))
+        model.roberta.encoder.compress_layer.bias.data = fairseq_linformer_state.pop('compress_layer.bias'.format(i))
+
+    assert len(fairseq_linformer_state) == 0
 
     if classification_head:
         model.classifier.dense.weight = linformer.model.classification_heads["mnli"].dense.weight
