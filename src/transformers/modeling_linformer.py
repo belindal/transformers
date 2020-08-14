@@ -206,16 +206,19 @@ class LinformerEncoder(BertEncoder):
         output_hidden_states=False,
         return_dict=False,
     ):
-	# TODO zero out padding?
+        # zero out padding for encoder inputs
+        if attention_mask is not None and encoder_hidden_states is None:
+            hidden_states[attention_mask.squeeze(1).squeeze(1) < 0] = 0.0
+
         return super().forward(
-	    hidden_states=hidden_states,
+	        hidden_states=hidden_states,
             attention_mask=attention_mask,
-	    head_mask=head_mask,
-	    encoder_hidden_states=encoder_hidden_states,
-	    encoder_attention_mask=encoder_attention_mask,
-	    output_attentions=output_attentions,
-	    output_hidden_states=output_hidden_states,
-	    return_dict=return_dict,
+            head_mask=head_mask,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=encoder_attention_mask,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
         )
 
 

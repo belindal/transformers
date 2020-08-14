@@ -25,9 +25,9 @@ from typing import Callable, Dict, Optional
 
 import numpy as np
 
-from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset
-from transformers import GlueDataTrainingArguments as DataTrainingArguments
-from transformers import (
+from src.transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset
+from src.transformers import GlueDataTrainingArguments as DataTrainingArguments
+from src.transformers import (
     HfArgumentParser,
     Trainer,
     TrainingArguments,
